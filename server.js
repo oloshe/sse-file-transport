@@ -149,7 +149,7 @@ router.post('/upload-chunk/:transferId', (req, res) => {
     res.json({ success: true });
 });
 
-const PORT = 9843;
+const PORT = 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
