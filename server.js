@@ -11,6 +11,8 @@ app.use(express.static('public'));
 const users = new Map(); // key: userId, value: { res (EventSource response) }
 const fileTransfers = new Map(); // key: transferId, value: file transfer info
 const pendingTransfers = new Map(); // key: receiverId, value: transferId
+const router = express.Router();
+app.use(router);
 
 // 生成随机ID
 function generateId() {
@@ -18,7 +20,7 @@ function generateId() {
 }
 
 // 用户连接端点
-app.get('/connect', (req, res) => {
+router.get('/connect', (req, res) => {
     const userId = generateId();
     users.set(userId, { res: null });
     
@@ -27,7 +29,7 @@ app.get('/connect', (req, res) => {
 });
 
 // 发送方初始化文件传输
-app.post('/init-transfer', (req, res) => {
+router.post('/init-transfer', (req, res) => {
     const { senderId, receiverId, fileName, fileSize } = req.body;
     
     if (!users.has(receiverId)) {
@@ -63,7 +65,7 @@ app.post('/init-transfer', (req, res) => {
 });
 
 // 接收方轮询等待传输
-app.get('/wait-for-transfer/:receiverId', (req, res) => {
+router.get('/wait-for-transfer/:receiverId', (req, res) => {
     const receiverId = parseInt(req.params.receiverId);
     
     if (!users.has(receiverId)) {
@@ -97,7 +99,7 @@ app.get('/wait-for-transfer/:receiverId', (req, res) => {
 });
 
 // 接收方接受传输
-app.post('/accept-transfer', (req, res) => {
+router.post('/accept-transfer', (req, res) => {
     const { transferId, receiverId } = req.body;
     const transfer = fileTransfers.get(transferId);
     
@@ -117,7 +119,7 @@ app.post('/accept-transfer', (req, res) => {
 });
 
 // 发送方上传文件分片
-app.post('/upload-chunk/:transferId', (req, res) => {
+router.post('/upload-chunk/:transferId', (req, res) => {
     const transferId = parseInt(req.params.transferId);
     const { chunk, index, isLast } = req.body;
     const transfer = fileTransfers.get(transferId);
