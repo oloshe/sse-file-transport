@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Transfer</title>
+    <style>
+        :root {
+            --primary-color: #4361ee;
+            --secondary-color: #3f37c9;
+            --accent-color: #4895ef;
+            --light-color: #f8f9fa;
+            --dark-color: #212529;
+            --success-color: #4cc9f0;
+            --warning-color: #f72585;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+            color: var(--dark-color);
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+        }
+
+        .user-id {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 10px;
+            background-color: var(--light-color);
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .mode-selector {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .mode-btn {
+            padding: 12px 24px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .mode-btn:hover {
+            background-color: var(--secondary-color);
+            transform: translateY(-2px);
+        }
+
+        .mode-btn.active {
+            background-color: var(--secondary-color);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: white;
+            margin-top: 20px;
+        }
+
+        .panel.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        input[type="number"],
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+
+        .file-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: var(--light-color);
+            border-radius: 5px;
+        }
+
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        progress {
+            width: 100%;
+            height: 10px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+        }
+
+        .progress-text {
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .transfer-info {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #e8f4fd;
+            border-radius: 5px;
+            border-left: 4px solid var(--accent-color);
+        }
+
+        .download-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 15px;
+            background-color: var(--success-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .download-link:hover {
+            background-color: #3aa8d8;
+        }
+    </style>
+</head>
+<script src="
+https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.js
+"></script>
+<link href="
+https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
+" rel="stylesheet">
+
+<body>
+    <div class="container">
+        <h1>File Transfer</h1>
+
+        <div class="user-id">
+            Your User ID: <span id="userId"></span>
+            <svg id="copyIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24">
+                <path fill="currentColor"
+                    d="M15.24 2h-3.894c-1.764 0-3.162 0-4.255.148c-1.126.152-2.037.472-2.755 1.193c-.719.721-1.038 1.636-1.189 2.766C3 7.205 3 8.608 3 10.379v5.838c0 1.508.92 2.8 2.227 3.342c-.067-.91-.067-2.185-.067-3.247v-5.01c0-1.281 0-2.386.118-3.27c.127-.948.413-1.856 1.147-2.593s1.639-1.024 2.583-1.152c.88-.118 1.98-.118 3.257-.118h3.07c1.276 0 2.374 0 3.255.118A3.6 3.6 0 0 0 15.24 2" />
+                <path fill="currentColor"
+                    d="M6.6 11.397c0-2.726 0-4.089.844-4.936c.843-.847 2.2-.847 4.916-.847h2.88c2.715 0 4.073 0 4.917.847S21 8.671 21 11.397v4.82c0 2.726 0 4.089-.843 4.936c-.844.847-2.202.847-4.917.847h-2.88c-2.715 0-4.073 0-4.916-.847c-.844-.847-.844-2.21-.844-4.936z" />
+            </svg>
+        </div>
+
+        <div class="mode-selector">
+            <button class="mode-btn" id="sendModeBtn">Send File</button>
+            <button class="mode-btn" id="receiveModeBtn">Receive File</button>
+        </div>
+
+        <!-- Send File Panel -->
+        <div class="panel" id="sendPanel">
+            <h2>Send File</h2>
+            <div class="form-group">
+                <label for="receiverId">Receiver ID:</label>
+                <input type="number" id="receiverId" placeholder="Enter receiver's ID">
+            </div>
+            <div class="form-group">
+                <label for="fileInput">Select File:</label>
+                <input type="file" id="fileInput">
+            </div>
+            <button class="btn" id="sendFileBtn">Start Transfer</button>
+
+            <div class="file-info" id="fileInfo" style="display: none;"></div>
+
+            <div class="progress-container" id="progressContainer">
+                <progress value="0" max="100"></progress>
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+        </div>
+
+        <!-- Receive File Panel -->
+        <div class="panel" id="receivePanel">
+            <h2>Receive File</h2>
+            <button class="btn" id="waitForFileBtn">Wait for Incoming File</button>
+
+            <div class="transfer-info" id="transferInfo" style="display: none;">
+                <h3>Incoming File</h3>
+                <p id="incomingFileName"></p>
+                <p id="incomingFileSize"></p>
+                <p>From: <span id="senderId"></span></p>
+                <button class="btn" id="acceptTransferBtn">Accept Transfer</button>
+            </div>
+
+            <div class="progress-container" id="receiveProgressContainer" style="display: none;">
+                <progress value="0" max="100"></progress>
+                <div class="progress-text" id="receiveProgressText">0%</div>
+            </div>
+
+            <a href="#" class="download-link" id="downloadLink" style="display: none;">Download File</a>
+        </div>
+    </div>
+
+    <script>
+        // 用户ID和传输ID
+        let userId = null;
+        let currentTransferId = null;
+        let fileChunks = [];
+        let receivedFileName = '';
+        let receivedFileSize = 0;
+        let eventSource = null;
+
+        // DOM元素
+        const sendModeBtn = document.getElementById('sendModeBtn');
+        const receiveModeBtn = document.getElementById('receiveModeBtn');
+        const sendPanel = document.getElementById('sendPanel');
+        const receivePanel = document.getElementById('receivePanel');
+
+        // 初始化 - 连接服务器获取用户ID
+        fetch('/connect')
+            .then(response => response.json())
+            .then(data => {
+                userId = data.userId;
+                document.getElementById('userId').textContent = userId;
+            });
+
+        // 模式选择
+        sendModeBtn.addEventListener('click', () => {
+            sendModeBtn.classList.add('active');
+            receiveModeBtn.classList.remove('active');
+            sendPanel.classList.add('active');
+            receivePanel.classList.remove('active');
+            resetReceiveUI();
+        });
+
+        receiveModeBtn.addEventListener('click', () => {
+            receiveModeBtn.classList.add('active');
+            sendModeBtn.classList.remove('active');
+            receivePanel.classList.add('active');
+            sendPanel.classList.remove('active');
+            resetSendUI();
+        });
+
+        // 默认显示发送面板
+        sendModeBtn.classList.add('active');
+        sendPanel.classList.add('active');
+
+        document.getElementById('copyIcon').addEventListener('click', () => {
+            navigator.clipboard.writeText(userId).then(() => {
+                console.log('Async: Copying to clipboard was successful!');
+                showStatusMessage('Copy successfully', 'success');
+            }, (err) => {
+                console.error('Async: Could not copy text: ', err);
+            });
+        })
+
+        // 发送文件
+        document.getElementById('sendFileBtn').addEventListener('click', () => {
+            const receiverId = document.getElementById('receiverId').value;
+            const fileInput = document.getElementById('fileInput');
+
+            if (!receiverId || !fileInput.files.length) {
+                showStatusMessage('Please enter receiver ID and select a file', 'warning');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const fileInfo = document.getElementById('fileInfo');
+            fileInfo.innerHTML = `
+                <strong>File:</strong> ${file.name}<br>
+                <strong>Size:</strong> ${formatFileSize(file.size)}
+            `;
+            fileInfo.style.display = 'block';
+
+            // 初始化传输
+            fetch('/init-transfer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    senderId: userId,
+                    receiverId: parseInt(receiverId),
+                    fileName: file.name,
+                    fileSize: file.size
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    currentTransferId = data.transferId;
+                    showStatusMessage('Waiting for receiver to accept transfer...', 'question');
+
+                    // 设置EventSource监听接收方的接受
+                    if (eventSource) eventSource.close();
+
+                    eventSource = new EventSource(`/wait-for-transfer/${userId}`);
+
+                    eventSource.addEventListener('transfer-accepted', (e) => {
+                        const data = JSON.parse(e.data);
+                        if (data.transferId === currentTransferId) {
+                            showStatusMessage('Receiver accepted. Starting file transfer...', 'success');
+                            // 开始分片上传文件
+                            uploadFileInChunks(file);
+                        }
+                    });
+
+                    eventSource.onerror = () => {
+                        eventSource.close();
+                    };
+                })
+                .catch(error => {
+                    showStatusMessage('Error initiating transfer: ' + error.message, 'error');
+                });
+        });
+
+        // 分片上传文件
+        function uploadFileInChunks(file) {
+            const CHUNK_SIZE = 64 * 1024; // 64KB
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            let chunksUploaded = 0;
+
+            const progressContainer = document.getElementById('progressContainer');
+            progressContainer.style.display = 'block';
+
+            const reader = new FileReader();
+            let currentChunk = 0;
+
+            reader.onload = function (e) {
+                const chunk = e.target.result.split(',')[1]; // 获取base64数据
+
+                fetch(`/upload-chunk/${currentTransferId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chunk,
+                        index: currentChunk,
+                        isLast: currentChunk === totalChunks - 1
+                    })
+                })
+                    .then(() => {
+                        chunksUploaded++;
+                        const progress = (chunksUploaded / totalChunks) * 100;
+                        updateProgress(progress);
+
+                        if (currentChunk < totalChunks - 1) {
+                            currentChunk++;
+                            readNextChunk();
+                        } else {
+                            showStatusMessage('File transfer completed!', 'success');
+                        }
+                    })
+                    .catch(error => {
+                        showStatusMessage('Error uploading chunk: ' + error.message, 'error');
+                    });
+            };
+
+            function readNextChunk() {
+                const start = currentChunk * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const slice = file.slice(start, end);
+                reader.readAsDataURL(slice);
+            }
+
+            function updateProgress(percent) {
+                const progressBar = document.querySelector('#progressContainer progress');
+                const progressText = document.getElementById('progressText');
+                progressBar.value = percent;
+                progressText.textContent = `${Math.round(percent)}%`;
+            }
+
+            readNextChunk();
+        }
+
+        // 等待接收文件
+        document.getElementById('waitForFileBtn').addEventListener('click', () => {
+            document.getElementById('waitForFileBtn').disabled = true;
+            showStatusMessage('Waiting for incoming file transfer...', 'question');
+
+            if (eventSource) eventSource.close();
+
+            eventSource = new EventSource(`/wait-for-transfer/${userId}`);
+
+            eventSource.addEventListener('transfer-waiting', (e) => {
+                const data = JSON.parse(e.data);
+                currentTransferId = data.transferId;
+                receivedFileName = data.fileName;
+                receivedFileSize = data.fileSize;
+
+                const transferInfo = document.getElementById('transferInfo');
+                document.getElementById('incomingFileName').textContent = `File: ${data.fileName}`;
+                document.getElementById('incomingFileSize').textContent = `Size: ${formatFileSize(data.fileSize)}`;
+                document.getElementById('senderId').textContent = data.senderId;
+
+                transferInfo.style.display = 'block';
+                showStatusMessage('Incoming file detected. Accept to start transfer.', 'question');
+            });
+
+            eventSource.addEventListener('chunk-received', (e) => {
+                const data = JSON.parse(e.data);
+
+                // 存储接收到的分片
+                fileChunks[data.index] = data.chunk;
+
+                // 更新进度
+                const receivedChunks = fileChunks.filter(c => c).length;
+                const totalChunks = Math.ceil(receivedFileSize / (64 * 1024));
+                const progress = (receivedChunks / totalChunks) * 100;
+
+                updateReceiveProgress(progress);
+
+                if (data.isLast) {
+                    // 所有分片接收完成，合并文件
+                    showStatusMessage('File transfer completed!', 'success');
+                    combineChunksAndDownload();
+                    eventSource.close();
+                }
+            });
+
+            eventSource.onerror = () => {
+                eventSource.close();
+            };
+        });
+
+        // 接受传输
+        document.getElementById('acceptTransferBtn').addEventListener('click', () => {
+            fetch('/accept-transfer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    transferId: currentTransferId,
+                    receiverId: userId
+                })
+            })
+                .then(() => {
+                    document.getElementById('transferInfo').style.display = 'none';
+                    document.getElementById('receiveProgressContainer').style.display = 'block';
+                    showStatusMessage('Transfer accepted. Receiving file...', 'question');
+                })
+                .catch(error => {
+                    showStatusMessage('Error accepting transfer: ' + error.message, 'error');
+                });
+        });
+
+        // 合并分片并下载文件
+        function combineChunksAndDownload() {
+            const blob = fileChunksToBlob(fileChunks);
+            const url = URL.createObjectURL(blob);
+
+            const downloadLink = document.getElementById('downloadLink');
+            downloadLink.href = url;
+            downloadLink.download = receivedFileName;
+            downloadLink.style.display = 'inline-block';
+            downloadLink.textContent = `Download ${receivedFileName}`;
+        }
+
+        // 辅助函数
+        function fileChunksToBlob(fileChunks) {
+            const blobParts = [];
+
+            for (const chunk of fileChunks) {
+                // Remove data URL prefix if present
+                const cleanChunk = chunk.split(';base64,').pop();
+                const byteCharacters = atob(cleanChunk);
+                const byteNumbers = new Array(byteCharacters.length);
+
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+
+                blobParts.push(new Uint8Array(byteNumbers));
+            }
+
+            return new Blob(blobParts, { type: 'application/octet-stream' });
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' bytes';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
+            else return (bytes / 1048576).toFixed(2) + ' MB';
+        }
+
+        function updateReceiveProgress(percent) {
+            const progressBar = document.querySelector('#receiveProgressContainer progress');
+            const progressText = document.getElementById('receiveProgressText');
+            progressBar.value = percent;
+            progressText.textContent = `${Math.round(percent)}%`;
+        }
+
+        function showStatusMessage(message, type) {
+            Toastify({
+                text: message,
+                duration: 3000,
+                newWindow: true,
+                close: true,
+                gravity: "top",
+                position: "right",
+                stopOnFocus: true,
+                onClick: function(){}
+            }).showToast();
+        }
+
+        function resetSendUI() {
+            document.getElementById('fileInfo').style.display = 'none';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('receiverId').value = '';
+            document.getElementById('fileInput').value = '';
+        }
+
+        function resetReceiveUI() {
+            document.getElementById('transferInfo').style.display = 'none';
+            document.getElementById('receiveProgressContainer').style.display = 'none';
+            document.getElementById('downloadLink').style.display = 'none';
+            document.getElementById('waitForFileBtn').disabled = false;
+            fileChunks = [];
+        }
+    </script>
+</body>
+
+</html>
