@@ -339,7 +339,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             fileInfo.style.display = 'block';
 
             // 初始化传输
-            fetch('/init-transfer', {
+            fetch('/api/init-transfer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -357,7 +357,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
                     // 设置EventSource监听接收方的接受
                     if (eventSource) eventSource.close();
 
-                    eventSource = new EventSource(`/wait-for-transfer/${userId}`);
+                    eventSource = new EventSource(`/api/wait-for-transfer/${userId}`);
 
                     eventSource.addEventListener('transfer-accepted', (e) => {
                         const data = JSON.parse(e.data);
@@ -392,7 +392,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             reader.onload = function (e) {
                 const chunk = e.target.result.split(',')[1]; // 获取base64数据
 
-                fetch(`/upload-chunk/${currentTransferId}`, {
+                fetch(`/api/upload-chunk/${currentTransferId}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -442,7 +442,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
             if (eventSource) eventSource.close();
 
-            eventSource = new EventSource(`/wait-for-transfer/${userId}`);
+            eventSource = new EventSource(`/api/wait-for-transfer/${userId}`);
 
             eventSource.addEventListener('transfer-waiting', (e) => {
                 const data = JSON.parse(e.data);
@@ -487,7 +487,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
         // 接受传输
         document.getElementById('acceptTransferBtn').addEventListener('click', () => {
-            fetch('/accept-transfer', {
+            fetch('/api/accept-transfer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
