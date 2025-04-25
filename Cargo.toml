@@ -1,0 +1,13 @@
+[package]
+name = "sse-file-transport"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.3", features = ["macros"] }
+rand = "0.9.1"
+serde = { version="1.0.219" , features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.44.2", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.17"
+tower-http = { version = "0.6.2", features = ["cors"] }
