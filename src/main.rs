@@ -1,11 +1,10 @@
 use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Path, State}, http::StatusCode, response::{sse::Event, Html, IntoResponse, Sse}, routing::{get, post}, Json, Router
+    extract::{Path, State}, response::{sse::Event, Html, IntoResponse, Sse}, routing::{get, post}, Json, Router
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::{Stream, wrappers::ReceiverStream};
 use tower_http::cors::{Any, CorsLayer};
@@ -18,7 +17,7 @@ struct AppState {
 }
 
 fn generate_id() -> i64 {
-    rand::rng().random_range(0..1000000)
+    rand::rng().random_range(100000000..999999999)
 }
 
 #[tokio::main]
@@ -50,14 +49,27 @@ async fn root() -> impl IntoResponse {
     Html(include_str!("./index.html"))
 }
 
-async fn connect(State(state): State<Arc<AppState>>) -> Json<Value> {
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectResult {
+    user_id: i64,
+}
+
+async fn connect(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let user_id = generate_id();
     let mut users = state.users.lock().await;
     users.insert(user_id, None);
-    Json(json!({ "userId": user_id  }))
+    Json(ConnectResult{ user_id })
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorResponse {
+    error: &'static str,
+}
+
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InitTransferData {
     pub sender_id: i64,
@@ -78,18 +90,30 @@ struct TransferInfo {
     pub completed: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferResponse {
+    pub transfer_id: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferWaitingData {
+    transfer_id: i64,
+    sender_id: i64,
+    file_name: String,
+    file_size: i64,
+}
+
 #[axum::debug_handler]
 async fn init_transfer(
     State(state): State<Arc<AppState>>,
     Json(data): Json<InitTransferData>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, impl IntoResponse> {
     let users = state.users.lock().await;
     if !users.contains_key(&data.receiver_id) {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": "Receiver not found"
-            })),
+        return Err(
+            Json(ErrorResponse { error: "Receiver not found" }),
         );
     }
     let transfer_id = generate_id();
@@ -111,23 +135,33 @@ async fn init_transfer(
 
     // 通知接收方
     if let Some(Some(tx)) = users.get(&data.receiver_id) {
-        let event_data = json!({
-            "transferId": transfer_id,
-            "senderId": data.sender_id,
-            "fileName": data.file_name.to_owned(),
-            "fileSize": data.file_size
-        });
+        
+        let event_data = TransferWaitData {
+            transfer_id,
+            sender_id: data.sender_id,
+            file_name: data.file_name.to_owned(),
+            file_size: data.file_size,
+        };
 
         let event = Event::default()
             .event("transfer-waiting")
-            .data(event_data.to_string());
+            .data(serde_json::to_string(&event_data).unwrap());
 
         if let Err(e) = tx.send(Ok(event)).await {
             eprintln!("Failed to notify receiver: {}", e);
         }
     }
 
-    (StatusCode::OK, Json(json!({ "transferId": transfer_id  })))
+    Ok(Json(TransferResponse{ transfer_id }))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferWaitData {
+    transfer_id: i64,
+    sender_id: i64,
+    file_name: String,
+    file_size: i64
 }
 
 async fn wait_for_transfer(
@@ -144,16 +178,16 @@ async fn wait_for_transfer(
 
         if let Some(transfer_id) = pending_transfers.get(&receiver_id) {
             if let Some(transfer) = file_transfers.get(transfer_id) {
-                let event_data = json!({
-                    "transferId": transfer.transfer_id,
-                    "senderId": transfer.sender_id,
-                    "fileName": transfer.file_name,
-                    "fileSize": transfer.file_size
-                });
+                let event_data = TransferWaitData {
+                    transfer_id: transfer.transfer_id,
+                    sender_id: transfer.sender_id,
+                    file_name: transfer.file_name.to_owned(),
+                    file_size: transfer.file_size,
+                };
 
                 let event = Event::default()
                     .event("transfer-waiting")
-                    .data(event_data.to_string());
+                    .data(serde_json::to_string(&event_data).unwrap());
 
                 tx.send(Ok(event)).await.unwrap();
             }
@@ -181,10 +215,16 @@ struct AcceptTransferRequest {
     receiver_id: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SuccessResponse {
+    success: bool,
+}
+
 async fn accept_transfer(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AcceptTransferRequest>,
-) -> Result<Json<Value>, impl IntoResponse> {
+) -> Result<impl IntoResponse, impl IntoResponse> {
     // 检查传输是否存在且接收者匹配
     let file_transfers = state.file_transfers.lock().await;
     let transfer = match file_transfers.get(&request.transfer_id) {
@@ -192,9 +232,9 @@ async fn accept_transfer(
         _ => {
             return Err((
                 axum::http::StatusCode::NOT_FOUND,
-                Json(json!({
-                    "error": "Transfer not found",
-                })),
+                Json(ErrorResponse{
+                    error: "Transfer not found",
+                }),
             ));
         }
     };
@@ -202,23 +242,23 @@ async fn accept_transfer(
     // 通知发送方
     let users = state.users.lock().await;
     if let Some(Some(tx)) = users.get(&transfer.sender_id) {
-        let event_data = json!({
-            "transferId": request.transfer_id,
-        });
+        let event_data = TransferResponse{
+            transfer_id: request.transfer_id
+        };
 
         let event = Event::default()
             .event("transfer-accepted")
-            .data(event_data.to_string());
+            .data(serde_json::to_string(&event_data).unwrap());
 
         if let Err(e) = tx.send(Ok(event)).await {
             eprintln!("Failed to notify sender: {}", e);
         }
     }
 
-    Ok(Json(json!({ "success": true })))
+    Ok(Json(SuccessResponse{ success: true }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UploadChunkRequest {
     chunk: String,  // 使用字节向量表示分片数据
@@ -230,7 +270,7 @@ async fn upload_chunk(
     Path(transfer_id): Path<i64>,
     State(state): State<Arc<AppState>>,
     Json(request): Json<UploadChunkRequest>,
-) -> Result<Json<Value>, impl IntoResponse> {
+) -> Result<impl IntoResponse, impl IntoResponse> {
     // 检查传输是否存在
     let mut file_transfers = state.file_transfers.lock().await;
     let transfer = match file_transfers.get_mut(&transfer_id) {
@@ -238,9 +278,9 @@ async fn upload_chunk(
         None => {
             return Err((
                 axum::http::StatusCode::NOT_FOUND,
-                Json(json! ({
-                    "error": "Transfer not found",
-                })),
+                Json(ErrorResponse {
+                    error: "Transfer not found",
+                }),
             ))
         }
     };
@@ -254,15 +294,10 @@ async fn upload_chunk(
     // 转发分片给接收方
     let users = state.users.lock().await;
     if let Some(Some(tx)) = users.get(&transfer.receiver_id) {
-        let event_data = json!({
-            "index": request.index,
-            "chunk": request.chunk,
-            "isLast": request.is_last,
-        });
 
         let event = Event::default()
             .event("chunk-received")
-            .data(event_data.to_string());
+            .data(serde_json::to_string(&request).unwrap());
 
         if let Err(e) = tx.send(Ok(event)).await {
             eprintln!("Failed to notify receiver: {}", e);
@@ -280,5 +315,5 @@ async fn upload_chunk(
         pending_transfers.remove(&transfer.receiver_id);
     }
 
-    Ok(Json(json!({ "success": true }) ))
+    Ok(Json( SuccessResponse { success: true } ))
 }

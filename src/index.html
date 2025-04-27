@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
     <title>File Transfer</title>
     <style>
         :root {
@@ -196,6 +197,10 @@
         .download-link:hover {
             background-color: #3aa8d8;
         }
+
+        .number .group+.group::before {
+            content: " ";
+        }
     </style>
 </head>
 <script src="
@@ -207,10 +212,10 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
 <body>
     <div class="container">
-        <h1>File Transfer</h1>
+        <h1>文件传输助手</h1>
 
         <div class="user-id">
-            Your User ID: <span id="userId"></span>
+            您的ID: <span id="userId" class="number"></span>
             <svg id="copyIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24">
                 <path fill="currentColor"
                     d="M15.24 2h-3.894c-1.764 0-3.162 0-4.255.148c-1.126.152-2.037.472-2.755 1.193c-.719.721-1.038 1.636-1.189 2.766C3 7.205 3 8.608 3 10.379v5.838c0 1.508.92 2.8 2.227 3.342c-.067-.91-.067-2.185-.067-3.247v-5.01c0-1.281 0-2.386.118-3.27c.127-.948.413-1.856 1.147-2.593s1.639-1.024 2.583-1.152c.88-.118 1.98-.118 3.257-.118h3.07c1.276 0 2.374 0 3.255.118A3.6 3.6 0 0 0 15.24 2" />
@@ -219,23 +224,23 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             </svg>
         </div>
 
-        <div class="mode-selector">
-            <button class="mode-btn" id="sendModeBtn">Send File</button>
-            <button class="mode-btn" id="receiveModeBtn">Receive File</button>
+        <div class="mode-selector" id="mode-selector">
+            <button class="mode-btn" id="sendModeBtn">发送文件</button>
+            <button class="mode-btn" id="receiveModeBtn">接收文件</button>
         </div>
 
         <!-- Send File Panel -->
         <div class="panel" id="sendPanel">
-            <h2>Send File</h2>
+            <h2>发送文件</h2>
             <div class="form-group">
-                <label for="receiverId">Receiver ID:</label>
+                <label for="receiverId">接收者ID:</label>
                 <input type="number" id="receiverId" placeholder="Enter receiver's ID">
             </div>
             <div class="form-group">
-                <label for="fileInput">Select File:</label>
+                <label for="fileInput">选择文件:</label>
                 <input type="file" id="fileInput">
             </div>
-            <button class="btn" id="sendFileBtn">Start Transfer</button>
+            <button class="btn" id="sendFileBtn">发送</button>
 
             <div class="file-info" id="fileInfo" style="display: none;"></div>
 
@@ -247,15 +252,19 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
         <!-- Receive File Panel -->
         <div class="panel" id="receivePanel">
-            <h2>Receive File</h2>
-            <button class="btn" id="waitForFileBtn">Wait for Incoming File</button>
+            <h2>接收文件</h2>
+            <button class="btn" id="waitForFileBtn">开始接收</button>
+
+            <div id="waitingLoading" style="display: none;">
+                正在等待传入的文件传输...
+            </div>
 
             <div class="transfer-info" id="transferInfo" style="display: none;">
-                <h3>Incoming File</h3>
+                <h3>收到文件</h3>
                 <p id="incomingFileName"></p>
                 <p id="incomingFileSize"></p>
                 <p>From: <span id="senderId"></span></p>
-                <button class="btn" id="acceptTransferBtn">Accept Transfer</button>
+                <button class="btn" id="acceptTransferBtn">同意传输</button>
             </div>
 
             <div class="progress-container" id="receiveProgressContainer" style="display: none;">
@@ -263,7 +272,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
                 <div class="progress-text" id="receiveProgressText">0%</div>
             </div>
 
-            <a href="#" class="download-link" id="downloadLink" style="display: none;">Download File</a>
+            <a href="#" class="download-link" id="downloadLink" style="display: none;">下载文件</a>
         </div>
     </div>
 
@@ -275,8 +284,12 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
         let receivedFileName = '';
         let receivedFileSize = 0;
         let eventSource = null;
+        let writableStream = null;
+        const canUseShowSaveFilePicker = typeof window.showSaveFilePicker === "function";
+        const CHUNK_SIZE = 64 * 1024; // 64KB
 
         // DOM元素
+        const modeSelector = document.getElementById('mode-selector');
         const sendModeBtn = document.getElementById('sendModeBtn');
         const receiveModeBtn = document.getElementById('receiveModeBtn');
         const sendPanel = document.getElementById('sendPanel');
@@ -287,7 +300,9 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             .then(response => response.json())
             .then(data => {
                 userId = data.userId;
-                document.getElementById('userId').textContent = userId;
+                document.getElementById('userId').innerHTML = userId.toLocaleString().split(',').map(item => {
+                    return `<span class="group">${item}</span>`
+                }).join('');
             });
 
         // 模式选择
@@ -296,6 +311,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             receiveModeBtn.classList.remove('active');
             sendPanel.classList.add('active');
             receivePanel.classList.remove('active');
+            modeSelector.style.display = 'none';
             resetReceiveUI();
         });
 
@@ -304,20 +320,22 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
             sendModeBtn.classList.remove('active');
             receivePanel.classList.add('active');
             sendPanel.classList.remove('active');
+            modeSelector.style.display = 'none';
             resetSendUI();
         });
 
-        // 默认显示发送面板
-        sendModeBtn.classList.add('active');
-        sendPanel.classList.add('active');
+        async function copy(text) {
+            var clipBoardElem = document.createElement("input");
+            document.body.appendChild(clipBoardElem);
+            clipBoardElem.value = text;
+            clipBoardElem.select();
+            var successfulCopy = document.execCommand('copy');
+            clipBoardElem.remove()
+        }
 
         document.getElementById('copyIcon').addEventListener('click', () => {
-            navigator.clipboard.writeText(userId).then(() => {
-                console.log('Async: Copying to clipboard was successful!');
-                showStatusMessage('Copy successfully', 'success');
-            }, (err) => {
-                console.error('Async: Could not copy text: ', err);
-            });
+            copy(userId)
+            showStatusMessage('Copy successfully', 'success');
         })
 
         // 发送文件
@@ -379,7 +397,6 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
         // 分片上传文件
         function uploadFileInChunks(file) {
-            const CHUNK_SIZE = 64 * 1024; // 64KB
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             let chunksUploaded = 0;
 
@@ -437,8 +454,12 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
 
         // 等待接收文件
         document.getElementById('waitForFileBtn').addEventListener('click', () => {
-            document.getElementById('waitForFileBtn').disabled = true;
             showStatusMessage('Waiting for incoming file transfer...', 'question');
+            document.getElementById('waitForFileBtn').style.display = 'none';
+            document.getElementById('transferInfo').style.display = 'none';
+            document.getElementById('receiveProgressContainer').style.display = 'none';
+            document.getElementById('downloadLink').style.display = 'none';
+            document.getElementById('waitingLoading').style.display = 'block';
 
             if (eventSource) eventSource.close();
 
@@ -450,34 +471,68 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
                 receivedFileName = data.fileName;
                 receivedFileSize = data.fileSize;
 
-                const transferInfo = document.getElementById('transferInfo');
+                document.getElementById('waitingLoading').style.display = 'none';
+                document.getElementById('transferInfo').style.display = 'block';
                 document.getElementById('incomingFileName').textContent = `File: ${data.fileName}`;
                 document.getElementById('incomingFileSize').textContent = `Size: ${formatFileSize(data.fileSize)}`;
                 document.getElementById('senderId').textContent = data.senderId;
-
-                transferInfo.style.display = 'block';
                 showStatusMessage('Incoming file detected. Accept to start transfer.', 'question');
             });
 
-            eventSource.addEventListener('chunk-received', (e) => {
+
+            eventSource.addEventListener('chunk-received', async (e) => {
                 const data = JSON.parse(e.data);
 
-                // 存储接收到的分片
-                fileChunks[data.index] = data.chunk;
+                if (canUseShowSaveFilePicker) {
+                    // 解码Base64数据
+                    const cleanChunk = data.chunk.split(';base64,').pop();
+                    const byteString = atob(cleanChunk);
+                    const buffer = new Uint8Array(byteString.length);
+                    for (let i = 0; i < byteString.length; i++) {
+                        buffer[i] = byteString.charCodeAt(i);
+                    }
 
-                // 更新进度
-                const receivedChunks = fileChunks.filter(c => c).length;
-                const totalChunks = Math.ceil(receivedFileSize / (64 * 1024));
-                const progress = (receivedChunks / totalChunks) * 100;
+                    // 计算写入位置（假设分片大小为64KB）
+                    const offset = data.index * CHUNK_SIZE;
 
-                updateReceiveProgress(progress);
+                    // 流式写入
+                    await writableStream.write({
+                        type: "write",
+                        data: buffer,
+                        position: offset
+                    });
 
-                if (data.isLast) {
-                    // 所有分片接收完成，合并文件
-                    showStatusMessage('File transfer completed!', 'success');
-                    combineChunksAndDownload();
-                    eventSource.close();
+                    // 更新进度
+                    const progress = ((data.index + 1) / Math.ceil(receivedFileSize / CHUNK_SIZE)) * 100;
+
+                    updateReceiveProgress(progress);
+
+                    if (data.isLast) {
+                        await writableStream.close();
+                        showStatusMessage('File saved successfully!', 'success');
+                        eventSource.close();
+                        document.getElementById('receiveProgressContainer').style.display = 'none';
+                        document.getElementById('waitForFileBtn').style.display = 'block';
+                    }
+                } else {
+                    // 存储接收到的分片
+                    fileChunks[data.index] = data.chunk;
+
+                    // 更新进度
+                    const receivedChunks = fileChunks.filter(c => c).length;
+                    const totalChunks = Math.ceil(receivedFileSize / (64 * 1024));
+                    const progress = (receivedChunks / totalChunks) * 100;
+
+                    updateReceiveProgress(progress);
+
+                    if (data.isLast) {
+                        // 所有分片接收完成，合并文件
+                        showStatusMessage('File transfer completed!', 'success');
+                        combineChunksAndDownload();
+                        eventSource.close();
+                    }
                 }
+
             });
 
             eventSource.onerror = () => {
@@ -486,7 +541,13 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
         });
 
         // 接受传输
-        document.getElementById('acceptTransferBtn').addEventListener('click', () => {
+        document.getElementById('acceptTransferBtn').addEventListener('click', async () => {
+            if (canUseShowSaveFilePicker) {
+                fileHandle = await window.showSaveFilePicker({
+                    suggestedName: receivedFileName,
+                });
+                writableStream = await fileHandle.createWritable();
+            }
             fetch('/accept-transfer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -544,6 +605,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
         }
 
         function updateReceiveProgress(percent) {
+            if (!Number.isFinite(percent)) return;
             const progressBar = document.querySelector('#receiveProgressContainer progress');
             const progressText = document.getElementById('receiveProgressText');
             progressBar.value = percent;
@@ -559,7 +621,7 @@ https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css
                 gravity: "top",
                 position: "right",
                 stopOnFocus: true,
-                onClick: function(){}
+                onClick: function () { }
             }).showToast();
         }
 
