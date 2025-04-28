@@ -90,21 +90,6 @@ async fn connect(
     println!("{addr}");
     let user_id = generate_id(Some(addr.to_string()));
     let mut users = state.users.lock().await;
-    if users.contains_key(&user_id) {
-        // 通知接收方
-        if let Some(Some(tx)) = users.get(&user_id) {
-            let event_data = InterruptedData {
-            };
-
-            let event = Event::default()
-                .event("interrupted")
-                .data(serde_json::to_string(&event_data).unwrap());
-
-            if let Err(e) = tx.send(Ok(event)).await {
-                eprintln!("Failed to notify receiver: {}", e);
-            }
-        }
-    }
     users.insert(user_id, None);
     Json(ConnectResult { user_id })
 }
@@ -124,7 +109,7 @@ struct InitTransferData {
     pub file_size: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct TransferInfo {
     pub transfer_id: i64,
@@ -207,13 +192,6 @@ struct TransferWaitData {
     sender_id: i64,
     file_name: String,
     file_size: i64,
-}
-
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct InterruptedData {
-    
 }
 
 async fn wait_for_transfer(
@@ -357,13 +335,23 @@ async fn upload_chunk(
 
     // 如果是最后一个分片，清理传输
     if request.is_last {
+        println!("111");
+
+        // let mut transfer_clone = transfer.clone();
+        // drop(file_transfers); // 释放锁
+
         transfer.completed = true;
-        let mut file_transfers = state.file_transfers.lock().await;
+        // let mut file_transfers = state.file_transfers.lock().await;
+
+        println!("222");
+        let receiver_id = transfer.receiver_id;
         file_transfers.remove(&transfer_id);
 
         // 同时从pending_transfers中移除
         let mut pending_transfers = state.pending_transfers.lock().await;
-        pending_transfers.remove(&transfer.receiver_id);
+
+        println!("333");
+        pending_transfers.remove(&receiver_id);
     }
 
     Ok(Json(SuccessResponse { success: true }))
