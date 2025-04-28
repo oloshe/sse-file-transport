@@ -1,13 +1,27 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    hash::{DefaultHasher, Hash, Hasher},
+    net::SocketAddr,
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
-    extract::{Path, State}, response::{sse::Event, Html, IntoResponse, Sse}, routing::{get, post}, Json, Router
+    Json, Router,
+    extract::{ConnectInfo, Path, State},
+    response::{Html, IntoResponse, Sse, sse::Event},
+    routing::{get, post},
 };
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::{Stream, wrappers::ReceiverStream};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 
 #[derive(Debug, Default)]
 struct AppState {
@@ -16,12 +30,24 @@ struct AppState {
     pending_transfers: Mutex<HashMap<i64, i64>>,
 }
 
-fn generate_id() -> i64 {
-    rand::rng().random_range(100000000..999999999)
+fn generate_id(seed: Option<String>) -> i64 {
+    if let Some(seed) = seed {
+        let mut hasher = DefaultHasher::new();
+        seed.hash(&mut hasher);
+        let seed_u64 = hasher.finish();
+        let mut rng = ChaCha8Rng::seed_from_u64(seed_u64);
+        rng.random_range(100000000..999999999)
+    } else {
+        rand::rng().random_range(100000000..999999999)
+    }
 }
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
     // 设置 CORS 中间件
     let cors = CorsLayer::new()
         .allow_origin(Any) // 允许任何来源
@@ -38,7 +64,9 @@ async fn main() {
         .route("/accept-transfer", post(accept_transfer))
         .route("/upload-chunk/{transfer_id}", post(upload_chunk))
         .with_state(shared_state)
-        .layer(cors);
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -55,11 +83,30 @@ struct ConnectResult {
     user_id: i64,
 }
 
-async fn connect(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let user_id = generate_id();
+async fn connect(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> impl IntoResponse {
+    println!("{addr}");
+    let user_id = generate_id(Some(addr.to_string()));
     let mut users = state.users.lock().await;
+    if users.contains_key(&user_id) {
+        // 通知接收方
+        if let Some(Some(tx)) = users.get(&user_id) {
+            let event_data = InterruptedData {
+            };
+
+            let event = Event::default()
+                .event("interrupted")
+                .data(serde_json::to_string(&event_data).unwrap());
+
+            if let Err(e) = tx.send(Ok(event)).await {
+                eprintln!("Failed to notify receiver: {}", e);
+            }
+        }
+    }
     users.insert(user_id, None);
-    Json(ConnectResult{ user_id })
+    Json(ConnectResult { user_id })
 }
 
 #[derive(Debug, Serialize)]
@@ -67,7 +114,6 @@ async fn connect(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 struct ErrorResponse {
     error: &'static str,
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,11 +158,11 @@ async fn init_transfer(
 ) -> Result<impl IntoResponse, impl IntoResponse> {
     let users = state.users.lock().await;
     if !users.contains_key(&data.receiver_id) {
-        return Err(
-            Json(ErrorResponse { error: "Receiver not found" }),
-        );
+        return Err(Json(ErrorResponse {
+            error: "Receiver not found",
+        }));
     }
-    let transfer_id = generate_id();
+    let transfer_id = generate_id(None);
     let transfer_info = TransferInfo {
         transfer_id,
         sender_id: data.sender_id,
@@ -135,7 +181,6 @@ async fn init_transfer(
 
     // 通知接收方
     if let Some(Some(tx)) = users.get(&data.receiver_id) {
-        
         let event_data = TransferWaitData {
             transfer_id,
             sender_id: data.sender_id,
@@ -152,7 +197,7 @@ async fn init_transfer(
         }
     }
 
-    Ok(Json(TransferResponse{ transfer_id }))
+    Ok(Json(TransferResponse { transfer_id }))
 }
 
 #[derive(Debug, Serialize)]
@@ -161,7 +206,14 @@ struct TransferWaitData {
     transfer_id: i64,
     sender_id: i64,
     file_name: String,
-    file_size: i64
+    file_size: i64,
+}
+
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InterruptedData {
+    
 }
 
 async fn wait_for_transfer(
@@ -232,7 +284,7 @@ async fn accept_transfer(
         _ => {
             return Err((
                 axum::http::StatusCode::NOT_FOUND,
-                Json(ErrorResponse{
+                Json(ErrorResponse {
                     error: "Transfer not found",
                 }),
             ));
@@ -242,8 +294,8 @@ async fn accept_transfer(
     // 通知发送方
     let users = state.users.lock().await;
     if let Some(Some(tx)) = users.get(&transfer.sender_id) {
-        let event_data = TransferResponse{
-            transfer_id: request.transfer_id
+        let event_data = TransferResponse {
+            transfer_id: request.transfer_id,
         };
 
         let event = Event::default()
@@ -255,13 +307,13 @@ async fn accept_transfer(
         }
     }
 
-    Ok(Json(SuccessResponse{ success: true }))
+    Ok(Json(SuccessResponse { success: true }))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UploadChunkRequest {
-    chunk: String,  // 使用字节向量表示分片数据
+    chunk: String, // 使用字节向量表示分片数据
     index: usize,
     is_last: bool,
 }
@@ -281,7 +333,7 @@ async fn upload_chunk(
                 Json(ErrorResponse {
                     error: "Transfer not found",
                 }),
-            ))
+            ));
         }
     };
 
@@ -294,7 +346,6 @@ async fn upload_chunk(
     // 转发分片给接收方
     let users = state.users.lock().await;
     if let Some(Some(tx)) = users.get(&transfer.receiver_id) {
-
         let event = Event::default()
             .event("chunk-received")
             .data(serde_json::to_string(&request).unwrap());
@@ -309,11 +360,11 @@ async fn upload_chunk(
         transfer.completed = true;
         let mut file_transfers = state.file_transfers.lock().await;
         file_transfers.remove(&transfer_id);
-        
+
         // 同时从pending_transfers中移除
         let mut pending_transfers = state.pending_transfers.lock().await;
         pending_transfers.remove(&transfer.receiver_id);
     }
 
-    Ok(Json( SuccessResponse { success: true } ))
+    Ok(Json(SuccessResponse { success: true }))
 }
